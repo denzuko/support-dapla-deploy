@@ -247,7 +247,7 @@ registration = true
   `(("Unit" . (("Description" . "Stoat file server")
                ("After"       . "stoat-db.service stoat-cache.service")
                ("Requires"    . "stoat-db.service stoat-cache.service")))
-    ("Container" . (("Image"           . "oci.dapla.net/stoatchat/autumn:latest")
+    ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
                     ("ContainerName"   . "stoat-files")
                     ("AutoUpdate"      . "registry")
                     ("PublishPort"     . "127.0.0.1:3003:3003")
@@ -267,7 +267,7 @@ registration = true
                ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
                ("Wants"       . "network-online.target")
                ("Requires"    . "stoat-db.service stoat-cache.service")))
-    ("Container" . (("Image"         . "oci.dapla.net/stoatchat/backend:latest")
+    ("Container" . (("Image"         . "oci.dapla.net/revoltchat/server:latest")
                     ("ContainerName" . "stoat")
                     ("AutoUpdate"    . "registry")
                     ("PublishPort"   . "127.0.0.1:3000:3000")
@@ -365,8 +365,8 @@ backend stoat_files_be
   (images-pulled *service-user*
                   "oci.dapla.net/library/mongo:6"
                   "oci.dapla.net/eqalpha/keydb:latest"
-                  "oci.dapla.net/stoatchat/autumn:latest"
-                  "oci.dapla.net/stoatchat/backend:latest")
+                  "oci.dapla.net/revoltchat/autumn:latest"
+                  "oci.dapla.net/revoltchat/server:latest")
   (has-content
    (format nil "~A/.config/containers/systemd/stoat.network" *home-mountpoint*)
    (cinix-write-string (stoat-network-sections)))
