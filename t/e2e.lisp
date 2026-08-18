@@ -1,19 +1,19 @@
-;;;; t/e2e.lisp -- chat-dapla-deploy/e2e
+;;;; t/e2e.lisp -- support-dapla-deploy/e2e
 ;;;;
 ;;;; Post-deploy smoke tests for the Stoat stack. Run via
-;;;; `./chat-dapla-deploy.ros e2e` against a live deployment.
+;;;; `./support-dapla-deploy.ros e2e` against a live deployment.
 
-(defpackage :chat-dapla-deploy/e2e
+(defpackage :support-dapla-deploy/e2e
   (:use :cl :fiveam)
-  (:import-from :chat-dapla-deploy/deploy :*haproxy-fqdn*)
+  (:import-from :support-dapla-deploy/deploy :*haproxy-fqdn*)
   (:export :run-e2e))
 
-(in-package :chat-dapla-deploy/e2e)
+(in-package :support-dapla-deploy/e2e)
 
-(def-suite :chat-dapla-deploy-e2e
-  :description "Smoke tests for Stoat at chat.dapla.net.")
+(def-suite :support-dapla-deploy-e2e
+  :description "Smoke tests for Stoat at support.dapla.net.")
 
-(in-suite :chat-dapla-deploy-e2e)
+(in-suite :support-dapla-deploy-e2e)
 
 (defun base-url ()
   (format nil "https://~A" *haproxy-fqdn*))
@@ -51,6 +51,6 @@
 
 (defun run-e2e ()
   "Run the post-deploy e2e suite and signal an error if any test fails."
-  (let ((results (run :chat-dapla-deploy-e2e)))
+  (let ((results (run :support-dapla-deploy-e2e)))
     (unless (every #'fiveam::test-passed-p results)
-      (error "chat-dapla-deploy e2e suite: one or more tests failed."))))
+      (error "support-dapla-deploy e2e suite: one or more tests failed."))))

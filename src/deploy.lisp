@@ -1,18 +1,18 @@
-;;;; src/deploy.lisp -- chat-dapla-deploy/deploy core package
+;;;; src/deploy.lisp -- support-dapla-deploy/deploy core package
 ;;;;
 ;;;; Consfigurator properties and DEFHOST for the Stoat stack at
-;;;; chat.dapla.net. Stoat (formerly Revolt) is a self-hosted Discord
+;;;; support.dapla.net. Stoat (formerly Revolt) is a self-hosted Discord
 ;;;; alternative; its upstream image is stoatchat/self-hosted. The stack
 ;;;; consists of: stoat (API + web client), stoat-db (MongoDB), stoat-cache
 ;;;; (KeyDB/Redis-compatible), and stoat-files (S3-compatible file server).
 ;;;; Voice (LiveKit) is out of scope for this deploy; WebRTC UDP ports are
 ;;;; documented but not provisioned here.
 ;;;;
-;;;; chat-dapla-deploy.ros is a thin command wrapper; see
-;;;; chat-dapla-deploy.asd for the system definition and t/e2e.lisp for
+;;;; support-dapla-deploy.ros is a thin command wrapper; see
+;;;; support-dapla-deploy.asd for the system definition and t/e2e.lisp for
 ;;;; the post-deploy validation suite.
 
-(defpackage :chat-dapla-deploy/deploy
+(defpackage :support-dapla-deploy/deploy
   (:use :cl)
   (:import-from :consfigurator
                 :defprop :defhost :deploy :run :mrun :stripln
@@ -39,7 +39,7 @@
            :stoat-container-sections
            :haproxy-vhost-config))
 
-(in-package :chat-dapla-deploy/deploy)
+(in-package :support-dapla-deploy/deploy)
 
 (defparameter *service-user* "stoat"
   "Rootless system account the quadlets run under.")
@@ -60,8 +60,8 @@
   "Generated once; holds MONGO_ROOT_PASSWORD and S3_SECRET_KEY.")
 (defparameter *config-path* "/var/lib/stoat/.config/stoat/Revolt.toml"
   "Stoat server configuration file (Revolt.toml format).")
-(defparameter *haproxy-fqdn* "chat.dapla.net")
-(defparameter *haproxy-vhost-name* "chat")
+(defparameter *haproxy-fqdn* "support.dapla.net")
+(defparameter *haproxy-vhost-name* "support")
 
 (defprop zfs-encryption-key :posix (path)
   "Generate a raw 32-byte ZFS encryption key at PATH via `openssl rand`,
@@ -367,7 +367,7 @@ backend stoat_files_be
           "machinectl shell ~A@ -- systemctl --user restart stoat-db stoat-cache stoat-files stoat"
           user))))
 
-(defhost stoat-host (:deploy (:local))
+(defhost support-host (:deploy (:local))
   "The Stoat stack's host: four AES-256-GCM-encrypted ZFS datasets (home,
    MongoDB, file storage, KeyDB cache), the rootless service account and
    its linger, the generated secrets file, Revolt.toml, pulled images,
@@ -420,7 +420,7 @@ backend stoat_files_be
     (handler-bind ((consfigurator::skipped-properties
                      (lambda (c) (declare (ignore c))
                        (setf provisioning-failed t))))
-      (stoat-host))
+      (support-host))
     (when provisioning-failed
       (error "STOAT-HOST provisioning reported failed properties ~
               (see the per-property report above). Refusing to proceed.")))

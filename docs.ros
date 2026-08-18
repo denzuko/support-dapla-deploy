@@ -5,9 +5,9 @@ exec ros -Q -- $0 "$@"
 |#
 (progn
   (ros:ensure-asdf)
-  (asdf:load-asd (merge-pathnames "chat-dapla-deploy.asd" *load-pathname*))
+  (asdf:load-asd (merge-pathnames "support-dapla-deploy.asd" *load-pathname*))
   #+quicklisp
-  (ql:quickload '(:chat-dapla-deploy/docs :40ants-doc :40ants-doc-full) :silent t))
+  (ql:quickload '(:support-dapla-deploy/docs :40ants-doc :40ants-doc-full) :silent t))
 
 (defpackage :ros.script.docs
   (:use :cl))
@@ -17,7 +17,7 @@ exec ros -Q -- $0 "$@"
 (defun main (&rest argv)
   (declare (ignore argv))
   (40ants-doc-full/gh-pages:update-asdf-system-docs
-   :chat-dapla-deploy/docs
-   :root-section 'chat-dapla-deploy/docs::@chat-dapla-deploy
-   :output-dir (merge-pathnames "docs/" (asdf:system-source-directory :chat-dapla-deploy/docs))))
+   :support-dapla-deploy/docs
+   :root-section 'support-dapla-deploy/docs::@support-dapla-deploy
+   :output-dir (merge-pathnames "docs/" (asdf:system-source-directory :support-dapla-deploy/docs))))
 ;;; vim: set ft=lisp lisp:

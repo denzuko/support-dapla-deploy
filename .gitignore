@@ -1,5 +1,5 @@
-chat-dapla-deploy
-chat-dapla-deploy.tar.gz
+support-dapla-deploy
+support-dapla-deploy.tar.gz
 *.fasl
 .qlot/
 qlfile.lock

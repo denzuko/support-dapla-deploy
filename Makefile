@@ -1,9 +1,9 @@
-TARGET  := chat-dapla-deploy
+TARGET  := support-dapla-deploy
 PREFIX  := usr/local
 BUILDROOT := build/$(PREFIX)/bin
 MANROOT   := build/$(PREFIX)/man/man1
 
-# `test` runs the post-deploy CHAT-DAPLA-DEPLOY/E2E suite against a LIVE
+# `test` runs the post-deploy SUPPORT-DAPLA-DEPLOY/E2E suite against a LIVE
 # deploy -- it is not a build-time unit test, and has nothing to validate
 # without a target host that's already been deployed to. It's excluded from
 # `all` for that reason; run it explicitly once something is deployed.

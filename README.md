@@ -1,7 +1,7 @@
-# chat-dapla-deploy
+# support-dapla-deploy
 
 Roswell/Consfigurator deploy of [Stoat](https://stoat.chat) (formerly Revolt)
-at `chat.dapla.net`. Stoat is a self-hosted, open-source Discord alternative
+at `support.dapla.net`. Stoat is a self-hosted, open-source Discord alternative
 with text channels, roles, bots, and iOS/Android/web clients.
 
 ## Architecture
@@ -27,8 +27,8 @@ and TCP 7881 are not provisioned here.
 ## Repository Layout
 
 ```
-chat-dapla-deploy.ros   Thin Roswell entry point
-chat-dapla-deploy.asd   Umbrella ASDF system definition
+support-dapla-deploy.ros   Thin Roswell entry point
+support-dapla-deploy.asd   Umbrella ASDF system definition
 qlfile                   Qlot dependency pins
 src/deploy.lisp          Consfigurator properties and DEFHOST
 src/docs.lisp            40ants-doc sections
@@ -52,7 +52,7 @@ Makefile                 build / test / doc / dist / clean
 ```sh
 ros install qlot
 qlot add cl-inix consfigurator fiveam dexador
-./chat-dapla-deploy.ros
+./support-dapla-deploy.ros
 ```
 
 The script provisions via Consfigurator over a `:local` connection: ZFS datasets
@@ -63,7 +63,7 @@ five quadlet units (network + four containers), and the HAProxy vhost.
 
 | Platform | How |
 |----------|-----|
-| Web      | `https://chat.dapla.net` |
+| Web      | `https://support.dapla.net` |
 | Desktop  | Stoat app → Settings → Custom instance URL |
 | iOS/Android | Stoat app → Settings → Custom instance URL |
 
@@ -76,7 +76,7 @@ machinectl shell stoat@ -- systemctl --user restart stoat
 machinectl shell stoat@ -- podman auto-update
 ```
 
-Redeploy by re-running `./chat-dapla-deploy.ros`. Consfigurator's check/apply
+Redeploy by re-running `./support-dapla-deploy.ros`. Consfigurator's check/apply
 cycle is idempotent; only changed properties are applied.
 
 ## Playbook
