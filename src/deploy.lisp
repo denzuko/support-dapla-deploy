@@ -2,21 +2,20 @@
 ;;;;
 ;;;; Consfigurator properties and DEFHOST for the Stoat stack at
 ;;;; support.dapla.net. Stoat (formerly Revolt) is a self-hosted Discord
-;;;; alternative; its upstream image is stoatchat/self-hosted. The stack
-;;;; consists of: stoat (API + web client), stoat-db (MongoDB), stoat-cache
-;;;; (KeyDB/Redis-compatible), and stoat-files (S3-compatible file server).
-;;;; Voice (LiveKit) is out of scope for this deploy; WebRTC UDP ports are
-;;;; documented but not provisioned here.
+;;;; alternative. The stack consists of four containers: stoat (API + web
+;;;; client), stoat-db (MongoDB), stoat-cache (KeyDB), and stoat-files
+;;;; (S3-compatible file server). Voice (LiveKit) is out of scope.
 ;;;;
 ;;;; support-dapla-deploy.ros is a thin command wrapper; see
-;;;; support-dapla-deploy.asd for the system definition and t/e2e.lisp for
-;;;; the post-deploy validation suite.
+;;;; support-dapla-deploy.asd for the system definition and t/e2e.lisp
+;;;; for the post-deploy validation suite.
 
 (defpackage :support-dapla-deploy/deploy
   (:use :cl)
   (:import-from :consfigurator
-                :defprop :defhost :deploy :run :mrun :stripln
-                :remote-exists-p :write-remote-file :on-change)
+                :defprop :defhost :run :mrun :stripln
+                :remote-exists-p :write-remote-file :on-change
+                :inapplicable-property)
   (:import-from :consfigurator.property.file
                 :has-content :containing-directory-exists)
   (:import-from :consfigurator.property.systemd :lingering-enabled)
@@ -26,18 +25,19 @@
            :*db-dataset* :*db-mountpoint* :*db-dataset-keyfile*
            :*files-dataset* :*files-mountpoint* :*files-dataset-keyfile*
            :*cache-dataset* :*cache-mountpoint* :*cache-dataset-keyfile*
-           :*secrets-path* :*haproxy-fqdn*
+           :*secrets-path* :*config-path* :*haproxy-fqdn*
            :deploy-app
            :zfs-encryption-key :zfs-dataset-mounted
            :rootless-service-account
            :images-pulled :quadlets-activated
-           :cinix-write-string
+           :cinix-write-string :service-account-uid
            :stoat-network-sections
            :stoat-db-container-sections
            :stoat-cache-container-sections
            :stoat-files-container-sections
            :stoat-container-sections
-           :haproxy-vhost-config))
+           :haproxy-vhost-config
+           :quadlets-written :haproxy-vhost-written))
 
 (in-package :support-dapla-deploy/deploy)
 
@@ -64,27 +64,30 @@
 (defparameter *haproxy-vhost-name* "support")
 
 (defprop zfs-encryption-key :posix (path)
-  "Generate a raw 32-byte ZFS encryption key at PATH via `openssl rand`,
-   once, left alone on redeploy."
+  "Generate a raw 32-byte ZFS encryption key at PATH via `openssl rand -out`,
+   once, left alone on redeploy. Written directly by openssl to avoid binary
+   corruption through shell capture and string re-encoding."
   (:desc (format nil "ZFS encryption key at ~A" path))
   (:check (remote-exists-p path))
   (:apply
    (containing-directory-exists path)
-   (let ((key (stripln (mrun "openssl" "rand" "-hex" "32"))))
-     (write-remote-file path key :mode #o600))))
+   (mrun "openssl" "rand" "-out" path "32")
+   (mrun "chmod" "600" path)))
 
 (defun zfs-create-command (dataset mountpoint keyfile)
-  "The `zfs create` command line for DATASET at MOUNTPOINT, with
-   AES-256-GCM encryption keyed from KEYFILE when supplied."
+  "The `zfs create` command for DATASET at MOUNTPOINT, AES-256-GCM
+   encrypted via KEYFILE."
   (if keyfile
-      (format nil "zfs create -o mountpoint=~A -o encryption=aes-256-gcm -o keyformat=raw -o keylocation=file://~A ~A"
-              mountpoint keyfile dataset)
+      (format nil
+       "zfs create -o mountpoint=~A -o encryption=aes-256-gcm ~
+        -o keyformat=raw -o keylocation=file://~A ~A"
+       mountpoint keyfile dataset)
       (format nil "zfs create -o mountpoint=~A ~A" mountpoint dataset)))
 
 (defprop zfs-dataset-mounted :posix (dataset mountpoint &optional keyfile)
-  "Ensure DATASET exists, mounted at MOUNTPOINT. When KEYFILE is given the
-   dataset is created with AES-256-GCM native encryption. If the dataset
-   exists but is not mounted, the key is loaded and the dataset mounted."
+  "Ensure DATASET exists and is mounted at MOUNTPOINT. The :check verifies
+   actual mount state so a post-reboot locked dataset is caught and
+   remounted."
   (:desc (format nil "ZFS dataset ~A mounted at ~A~:[~; (encrypted)~]"
                   dataset mountpoint keyfile))
   (:check
@@ -100,17 +103,16 @@
        (mrun (zfs-create-command dataset mountpoint keyfile)))))
 
 (defprop rootless-service-account :posix (username home)
-  "Ensure a system account USERNAME exists with home directory HOME,
-   without creating that directory."
+  "Ensure system account USERNAME exists with home HOME, without creating
+   the directory."
   (:desc (format nil "System account ~A at ~A" username home))
   (:check (zerop (mrun :for-exit "id" username)))
   (:apply (mrun "useradd" "--system" "--no-create-home"
                 "--home-dir" home username)))
 
 (defprop db-secret-file :posix (path user)
-  "Generate MongoDB root password and S3 secret key via `openssl rand`,
-   persisted at PATH, mode 0600, owned by USER. Left alone on redeploy.
-   CONTAINING-DIRECTORY-EXISTS is always called first."
+  "Generate MongoDB root password and S3 secret key via `openssl rand -hex`,
+   persisted at PATH, mode 0600, owned by USER. Left alone on redeploy."
   (:desc (format nil "Stoat secrets at ~A" path))
   (:check (remote-exists-p path))
   (:apply
@@ -127,9 +129,8 @@
      (mrun "chown" (format nil "~A:~A" user user) path))))
 
 (defprop stoat-config :posix (path user fqdn secrets-path)
-  "Write Revolt.toml at PATH, populated from SECRETS-PATH. Left alone
-   on redeploy once present. CONTAINING-DIRECTORY-EXISTS is always called
-   first."
+  "Write Revolt.toml at PATH, populated from SECRETS-PATH. Left alone on
+   redeploy once present."
   (:desc (format nil "Revolt.toml at ~A" path))
   (:check (remote-exists-p path))
   (:apply
@@ -177,17 +178,19 @@ registration = true
      (mrun "chown" (format nil "~A:~A" user user) path))))
 
 (defprop images-pulled :posix (user &rest images)
-  "Pull IMAGES into USER's rootless Podman image store via `machinectl shell`."
+  "Pull IMAGES into USER's rootless Podman image store via `machinectl shell`.
+   The command must be an absolute path; machinectl does not accept a bare
+   command name after the user@ argument."
   (:desc (format nil "Podman images pulled for ~A" user))
   (:check
    (every (lambda (image)
             (zerop (mrun :for-exit
-                    (format nil "machinectl shell ~A@ -- podman image exists ~A"
+                    (format nil "machinectl shell ~A@ /usr/bin/podman image exists ~A"
                             user image))))
           images))
   (:apply
    (dolist (image images)
-     (mrun (format nil "machinectl shell ~A@ -- podman pull ~A" user image)))))
+     (mrun (format nil "machinectl shell ~A@ /usr/bin/podman pull ~A" user image)))))
 
 (defun cinix-write-string (sections)
   "Serialize an alist of (section-name . ((key . value) ...)) into
@@ -200,16 +203,20 @@ registration = true
       (format s "~%"))))
 
 (defun service-account-uid (username)
-  "Read USERNAME's UID from the local passwd database via getent, at
-   property apply time after ROOTLESS-SERVICE-ACCOUNT has run. The UID
-   is used as the base loopback PublishPort, per dapla.net convention."
-  (parse-integer
-   (third
-    (uiop:split-string
-     (string-trim '(#\Newline #\Space)
-       (with-output-to-string (s)
-         (uiop:run-program (list "getent" "passwd" username) :output s)))
-     :separator '(#\:)))))
+  "Read USERNAME's UID from the local passwd database via getent at property
+   apply time, after ROOTLESS-SERVICE-ACCOUNT has run. Returns NIL if the
+   account does not yet exist, allowing callers to defer operations that
+   depend on the UID. The UID is the base loopback PublishPort, per
+   dapla.net convention."
+  (let ((raw (with-output-to-string (s)
+               (uiop:run-program (list "getent" "passwd" username)
+                                 :output s
+                                 :ignore-error-status t))))
+    (when (and raw (plusp (length (string-trim '(#\Newline #\Space) raw))))
+      (parse-integer
+       (third (uiop:split-string
+               (string-trim '(#\Newline #\Space) raw)
+               :separator '(#\:)))))))
 
 (defun stoat-network-sections ()
   "Cinix AST for stoat.network: internal-only network."
@@ -217,7 +224,8 @@ registration = true
                   ("Internal"    . "true")))))
 
 (defun stoat-db-container-sections (db-mountpoint)
-  "Cinix AST for stoat-db.container: mongo:6, ZFS-backed volume."
+  "Cinix AST for stoat-db.container: mongo:6, ZFS-backed volume,
+   health-checked via mongosh ping."
   `(("Unit" . (("Description" . "Stoat MongoDB database")))
     ("Container" . (("Image"           . "oci.dapla.net/library/mongo:6")
                     ("ContainerName"   . "stoat-db")
@@ -274,11 +282,11 @@ registration = true
       ("Install" . (("WantedBy" . "default.target"))))))
 
 (defun stoat-container-sections (config-path)
-  "Cinix AST for stoat.container: main API + web client, binds to
-   127.0.0.1 only, mounts Revolt.toml read-only. API port is UID,
-   events/WebSocket port is UID+1, per dapla.net convention."
-  (let* ((uid        (service-account-uid *service-user*))
-         (port-api   uid)
+  "Cinix AST for stoat.container: main API + web client, binds to 127.0.0.1
+   only, mounts Revolt.toml read-only. API port is UID, events/WebSocket
+   port is UID+1, per dapla.net convention."
+  (let* ((uid         (service-account-uid *service-user*))
+         (port-api    uid)
          (port-events (1+ uid)))
     `(("Unit" . (("Description" . "Stoat chat server")
                  ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
@@ -299,31 +307,30 @@ registration = true
       ("Install" . (("WantedBy" . "default.target"))))))
 
 (defun haproxy-vhost-config ()
-  "HAProxy vhost text: HTTP redirect, TLS frontend with security headers,
-   WebSocket upgrade support for the events endpoint, backends for the API
-   (UID), events/WebSocket (UID+1), and file server (UID+2), per dapla.net
-   convention."
-  (let* ((uid          (service-account-uid *service-user*))
-         (port-api     uid)
-         (port-events  (1+ uid))
-         (port-files   (+ uid 2)))
-  (format nil
-"frontend ~A_http
+  "HAProxy vhost text for support.dapla.net. Backend ports are derived from
+   the service account UID at apply time: API=UID, events=UID+1, files=UID+2,
+   per dapla.net convention."
+  (let* ((uid         (service-account-uid *service-user*))
+         (port-api    uid)
+         (port-events (1+ uid))
+         (port-files  (+ uid 2)))
+    (format nil
+"frontend support_http
   bind *:80
-  acl host_~A hdr(host) -i ~A
-  redirect scheme https code 301 if host_~A
+  acl host_support hdr(host) -i support.dapla.net
+  redirect scheme https code 301 if host_support
 
-frontend ~A_https
-  bind *:443 ssl crt /etc/haproxy/certs/~A.pem alpn h2,http/1.1
-  acl host_~A hdr(host) -i ~A
+frontend support_https
+  bind *:443 ssl crt /etc/haproxy/certs/support.dapla.net.pem alpn h2,http/1.1
+  acl host_support hdr(host) -i support.dapla.net
   acl is_websocket hdr(Upgrade) -i websocket
   http-response set-header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\"
   http-response set-header X-Content-Type-Options nosniff
   http-response set-header X-Frame-Options SAMEORIGIN
   http-response set-header Referrer-Policy strict-origin-when-cross-origin
   http-response set-header Permissions-Policy \"interest-cohort=()\"
-  use_backend stoat_ws_be  if host_~A is_websocket
-  use_backend stoat_api_be if host_~A
+  use_backend stoat_ws_be  if host_support is_websocket
+  use_backend stoat_api_be if host_support
 
 backend stoat_api_be
   balance roundrobin
@@ -351,28 +358,63 @@ backend stoat_files_be
   timeout server  60s
   server stoat-files 127.0.0.1:~A check inter 10s rise 2 fall 3
 "
-          *haproxy-vhost-name* *haproxy-vhost-name* *haproxy-fqdn* *haproxy-vhost-name*
-          *haproxy-vhost-name* *haproxy-fqdn*
-          *haproxy-vhost-name* *haproxy-fqdn*
-          *haproxy-vhost-name* *haproxy-vhost-name*
-          port-api port-events port-files)))
+            port-api port-events port-files)))
+
+(defprop quadlets-written :posix (user home db-mountpoint files-mountpoint
+                                  cache-mountpoint config-path secrets-path)
+  "Write all Stoat quadlet unit files into USER's systemd container directory.
+   The service account UID is read at apply time via SERVICE-ACCOUNT-UID,
+   after ROOTLESS-SERVICE-ACCOUNT has run, so PublishPort is always correct."
+  (:desc (format nil "Stoat quadlet units written for ~A" user))
+  (:apply
+   (let ((quadlet-dir (format nil "~A/.config/containers/systemd" home)))
+     (containing-directory-exists (format nil "~A/stoat.network" quadlet-dir))
+     (write-remote-file (format nil "~A/stoat.network" quadlet-dir)
+                        (cinix-write-string (stoat-network-sections)))
+     (write-remote-file (format nil "~A/stoat-db.container" quadlet-dir)
+                        (cinix-write-string (stoat-db-container-sections db-mountpoint)))
+     (write-remote-file (format nil "~A/stoat-cache.container" quadlet-dir)
+                        (cinix-write-string (stoat-cache-container-sections cache-mountpoint)))
+     (write-remote-file (format nil "~A/stoat-files.container" quadlet-dir)
+                        (cinix-write-string (stoat-files-container-sections
+                                             files-mountpoint secrets-path)))
+     (write-remote-file (format nil "~A/stoat.container" quadlet-dir)
+                        (cinix-write-string (stoat-container-sections config-path))))))
 
 (defprop quadlets-activated :posix (user)
-  "Reload USER's user-scope systemd daemon and restart the stoat
-   quadlet-generated services in dependency order via `machinectl shell`."
+  "Reload USER's user-scope systemd daemon and restart the Stoat quadlet
+   services in dependency order via `machinectl shell`."
   (:desc (format nil "Quadlets activated for ~A" user))
   (:apply
-   (mrun (format nil "machinectl shell ~A@ -- systemctl --user daemon-reload" user))
+   (mrun (format nil "machinectl shell ~A@ /usr/bin/systemctl --user daemon-reload" user))
    (mrun (format nil
-          "machinectl shell ~A@ -- systemctl --user restart stoat-db stoat-cache stoat-files stoat"
+          "machinectl shell ~A@ /usr/bin/systemctl --user restart stoat-db stoat-cache stoat-files stoat"
           user))))
+
+(defprop haproxy-vhost-written :posix ()
+  "Write the HAProxy vhost config for support.dapla.net. Skipped when the
+   service account does not yet exist. Reloads HAProxy only when content
+   changes."
+  (:desc (format nil "HAProxy vhost written for ~A" *haproxy-fqdn*))
+  (:check (null (service-account-uid *service-user*)))
+  (:apply
+   (unless (service-account-uid *service-user*)
+     (inapplicable-property
+      "Service account ~A does not exist; cannot determine port."
+      *service-user*))
+   (let* ((cfg-path (format nil "/etc/haproxy/conf.d/~A.cfg" *haproxy-vhost-name*))
+          (new-content (haproxy-vhost-config))
+          (current (when (probe-file cfg-path) (uiop:read-file-string cfg-path))))
+     (unless (equal new-content current)
+       (containing-directory-exists cfg-path)
+       (write-remote-file cfg-path new-content)
+       (reloaded "haproxy")))))
 
 (defhost support-host (:deploy (:local))
   "The Stoat stack's host: four AES-256-GCM-encrypted ZFS datasets (home,
-   MongoDB, file storage, KeyDB cache), the rootless service account and
-   its linger, the generated secrets file, Revolt.toml, pulled images,
-   the four quadlet units, and the HAProxy vhost, applied in dependency
-   order."
+   MongoDB, file storage, KeyDB cache), the rootless service account and its
+   linger, the generated secrets file, Revolt.toml, pulled images, the five
+   quadlet units, and the HAProxy vhost, applied in dependency order."
   (zfs-encryption-key *home-dataset-keyfile*)
   (zfs-encryption-key *db-dataset-keyfile*)
   (zfs-encryption-key *files-dataset-keyfile*)
@@ -390,38 +432,22 @@ backend stoat_files_be
                   "oci.dapla.net/eqalpha/keydb:latest"
                   "oci.dapla.net/revoltchat/autumn:latest"
                   "oci.dapla.net/revoltchat/server:latest")
-  (has-content
-   (format nil "~A/.config/containers/systemd/stoat.network" *home-mountpoint*)
-   (cinix-write-string (stoat-network-sections)))
-  (has-content
-   (format nil "~A/.config/containers/systemd/stoat-db.container" *home-mountpoint*)
-   (cinix-write-string (stoat-db-container-sections *db-mountpoint*)))
-  (has-content
-   (format nil "~A/.config/containers/systemd/stoat-cache.container" *home-mountpoint*)
-   (cinix-write-string (stoat-cache-container-sections *cache-mountpoint*)))
-  (has-content
-   (format nil "~A/.config/containers/systemd/stoat-files.container" *home-mountpoint*)
-   (cinix-write-string (stoat-files-container-sections *files-mountpoint* *secrets-path*)))
-  (has-content
-   (format nil "~A/.config/containers/systemd/stoat.container" *home-mountpoint*)
-   (cinix-write-string (stoat-container-sections *config-path*)))
+  (quadlets-written *service-user* *home-mountpoint*
+                    *db-mountpoint* *files-mountpoint* *cache-mountpoint*
+                    *config-path* *secrets-path*)
   (quadlets-activated *service-user*)
-  (on-change
-      (has-content
-       (format nil "/etc/haproxy/conf.d/~A.cfg" *haproxy-vhost-name*)
-       (haproxy-vhost-config))
-    (reloaded "haproxy")))
+  (haproxy-vhost-written))
 
 (defun deploy-app ()
-  "Provision the Stoat stack via STOAT-HOST (Consfigurator, :local
+  "Provision the Stoat stack via SUPPORT-HOST (Consfigurator, :local
    connection). Aborts loudly if any property is skipped."
-  (format t "~&--> Provisioning via Consfigurator (STOAT-HOST)...~%")
+  (format t "~&--> Provisioning via Consfigurator (SUPPORT-HOST)...~%")
   (let ((provisioning-failed nil))
     (handler-bind ((consfigurator::skipped-properties
                      (lambda (c) (declare (ignore c))
                        (setf provisioning-failed t))))
       (support-host))
     (when provisioning-failed
-      (error "STOAT-HOST provisioning reported failed properties ~
+      (error "SUPPORT-HOST provisioning reported failed properties ~
               (see the per-property report above). Refusing to proceed.")))
   (format t "~&--> Stoat stack provisioned. Visit https://~A~%" *haproxy-fqdn*))
