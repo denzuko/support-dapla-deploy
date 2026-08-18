@@ -30,7 +30,7 @@
            :zfs-encryption-key :zfs-dataset-mounted
            :rootless-service-account
            :images-pulled :quadlets-activated
-           :cinix-write-string :service-account-uid
+           :cinix-write-string
            :stoat-network-sections
            :stoat-db-container-sections
            :stoat-cache-container-sections
@@ -250,8 +250,7 @@ registration = true
 (defun stoat-files-container-sections (files-mountpoint secrets-path)
   "Cinix AST for stoat-files.container: Stoat's built-in S3-compatible file
    server, binds to 127.0.0.1 only. Port is UID+2, per dapla.net convention."
-  (let ((port (+ (service-account-uid *service-user*) *port-base* 2)))
-    `(("Unit" . (("Description" . "Stoat file server")
+  `(("Unit" . (("Description" . "Stoat file server")
                  ("After"       . "stoat-db.service stoat-cache.service")
                  ("Requires"    . "stoat-db.service stoat-cache.service")))
       ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
@@ -270,10 +269,7 @@ registration = true
   "Cinix AST for stoat.container: main API + web client, binds to 127.0.0.1
    only, mounts Revolt.toml read-only. API port is UID, events/WebSocket
    port is UID+1, per dapla.net convention."
-  (let* ((uid         (+ (service-account-uid *service-user*) *port-base*))
-         (port-api    uid)
-         (port-events (1+ uid)))
-    `(("Unit" . (("Description" . "Stoat chat server")
+  (    `(("Unit" . (("Description" . "Stoat chat server")
                  ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
                  ("Wants"       . "network-online.target")
                  ("Requires"    . "stoat-db.service stoat-cache.service")))
@@ -346,7 +342,7 @@ backend stoat_files_be
   timeout server  60s
   server stoat-files 10.89.2.37:3003 check inter 10s rise 2 fall 3
 "
-            port-api port-events port-files)))
+))
 
 (defprop quadlets-written :posix (user home db-mountpoint files-mountpoint
                                   cache-mountpoint config-path secrets-path)
