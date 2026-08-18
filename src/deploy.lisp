@@ -291,14 +291,11 @@ registration = true
       ("Install" . (("WantedBy" . "default.target"))))))
 
 (defun haproxy-vhost-config ()
-  "HAProxy vhost text for support.dapla.net. Backend ports are derived from
-   the service account UID at apply time: API=UID, events=UID+1, files=UID+2,
-   per dapla.net convention."
-  (let* ((uid         (+ (service-account-uid *service-user*) *port-base*))
-         (port-api    uid)
-         (port-events (1+ uid))
-         (port-files  (+ uid 2)))
-    (format nil
+  "HAProxy vhost configuration for support.dapla.net.
+   Three backends on netavark gateway 10.89.2.37:
+     API=3000, WebSocket events=3001, file server=3003.
+   No loopback, no port arithmetic."
+  (format nil
 "frontend support_http
   bind *:80
   acl host_support hdr(host) -i support.dapla.net
@@ -322,7 +319,7 @@ backend stoat_api_be
   http-check expect status 200
   timeout connect 5s
   timeout server  60s
-  server stoat-api 127.0.0.1:~A check inter 10s rise 2 fall 3
+  server stoat-api 10.89.2.37:3000 check inter 10s rise 2 fall 3
 
 backend stoat_ws_be
   balance roundrobin
@@ -332,7 +329,7 @@ backend stoat_ws_be
   timeout server  120s
   timeout tunnel  3600s
   http-request set-header X-Forwarded-Proto https
-  server stoat-events 127.0.0.1:~A check inter 10s rise 2 fall 3
+  server stoat-events 10.89.2.37:3001 check inter 10s rise 2 fall 3
 
 backend stoat_files_be
   balance roundrobin
@@ -341,39 +338,7 @@ backend stoat_files_be
   timeout connect 5s
   timeout server  60s
   server stoat-files 10.89.2.37:3003 check inter 10s rise 2 fall 3
-"
-))
-
-(defprop quadlets-written :posix (user home db-mountpoint files-mountpoint
-                                  cache-mountpoint config-path secrets-path)
-  "Write all Stoat quadlet unit files into USER's systemd container directory.
-   The service account UID is read at apply time via SERVICE-ACCOUNT-UID,
-   after ROOTLESS-SERVICE-ACCOUNT has run, so PublishPort is always correct."
-  (:desc (format nil "Stoat quadlet units written for ~A" user))
-  (:apply
-   (let ((quadlet-dir (format nil "~A/.config/containers/systemd" home)))
-     (containing-directory-exists (format nil "~A/stoat.network" quadlet-dir))
-     (write-remote-file (format nil "~A/stoat.network" quadlet-dir)
-                        (cinix-write-string (stoat-network-sections)))
-     (write-remote-file (format nil "~A/stoat-db.container" quadlet-dir)
-                        (cinix-write-string (stoat-db-container-sections db-mountpoint)))
-     (write-remote-file (format nil "~A/stoat-cache.container" quadlet-dir)
-                        (cinix-write-string (stoat-cache-container-sections cache-mountpoint)))
-     (write-remote-file (format nil "~A/stoat-files.container" quadlet-dir)
-                        (cinix-write-string (stoat-files-container-sections
-                                             files-mountpoint secrets-path)))
-     (write-remote-file (format nil "~A/stoat.container" quadlet-dir)
-                        (cinix-write-string (stoat-container-sections config-path))))))
-
-(defprop quadlets-activated :posix (user)
-  "Reload USER's user-scope systemd daemon and restart the Stoat quadlet
-   services in dependency order via `machinectl shell`."
-  (:desc (format nil "Quadlets activated for ~A" user))
-  (:apply
-   (mrun (format nil "machinectl shell ~A@ /usr/bin/systemctl --user daemon-reload" user))
-   (mrun (format nil
-          "machinectl shell ~A@ /usr/bin/systemctl --user restart stoat-db stoat-cache stoat-files stoat"
-          user))))
+"))
 
 (defprop haproxy-vhost-written :posix ()
   "Write the HAProxy vhost config for support.dapla.net. Skipped when the
