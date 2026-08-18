@@ -63,6 +63,11 @@
 (defparameter *haproxy-fqdn* "support.dapla.net")
 (defparameter *haproxy-vhost-name* "support")
 
+(defparameter *port-base* 10000
+  "Added to the service account UID to derive the loopback PublishPort.
+   Keeps all ports above 1024 and clear of well-known service ranges.")
+
+
 (defprop zfs-encryption-key :posix (path)
   "Generate a raw 32-byte ZFS encryption key at PATH via `openssl rand -out`,
    once, left alone on redeploy. Written directly by openssl to avoid binary
@@ -264,7 +269,7 @@ registration = true
 (defun stoat-files-container-sections (files-mountpoint secrets-path)
   "Cinix AST for stoat-files.container: Stoat's built-in S3-compatible file
    server, binds to 127.0.0.1 only. Port is UID+2, per dapla.net convention."
-  (let ((port (+ (service-account-uid *service-user*) 2)))
+  (let ((port (+ (service-account-uid *service-user*) *port-base* 2)))
     `(("Unit" . (("Description" . "Stoat file server")
                  ("After"       . "stoat-db.service stoat-cache.service")
                  ("Requires"    . "stoat-db.service stoat-cache.service")))
@@ -285,7 +290,7 @@ registration = true
   "Cinix AST for stoat.container: main API + web client, binds to 127.0.0.1
    only, mounts Revolt.toml read-only. API port is UID, events/WebSocket
    port is UID+1, per dapla.net convention."
-  (let* ((uid         (service-account-uid *service-user*))
+  (let* ((uid         (+ (service-account-uid *service-user*) *port-base*))
          (port-api    uid)
          (port-events (1+ uid)))
     `(("Unit" . (("Description" . "Stoat chat server")
@@ -310,7 +315,7 @@ registration = true
   "HAProxy vhost text for support.dapla.net. Backend ports are derived from
    the service account UID at apply time: API=UID, events=UID+1, files=UID+2,
    per dapla.net convention."
-  (let* ((uid         (service-account-uid *service-user*))
+  (let* ((uid         (+ (service-account-uid *service-user*) *port-base*))
          (port-api    uid)
          (port-events (1+ uid))
          (port-files  (+ uid 2)))
