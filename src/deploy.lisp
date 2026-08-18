@@ -199,6 +199,18 @@ registration = true
         (format s "~A=~A~%" (car kv) (cdr kv)))
       (format s "~%"))))
 
+(defun service-account-uid (username)
+  "Read USERNAME's UID from the local passwd database via getent, at
+   property apply time after ROOTLESS-SERVICE-ACCOUNT has run. The UID
+   is used as the base loopback PublishPort, per dapla.net convention."
+  (parse-integer
+   (third
+    (uiop:split-string
+     (string-trim '(#\Newline #\Space)
+       (with-output-to-string (s)
+         (uiop:run-program (list "getent" "passwd" username) :output s)))
+     :separator '(#\:)))))
+
 (defun stoat-network-sections ()
   "Cinix AST for stoat.network: internal-only network."
   '(("Network" . (("NetworkName" . "stoat")
@@ -243,48 +255,58 @@ registration = true
 
 (defun stoat-files-container-sections (files-mountpoint secrets-path)
   "Cinix AST for stoat-files.container: Stoat's built-in S3-compatible file
-   server, binds to 127.0.0.1 only."
-  `(("Unit" . (("Description" . "Stoat file server")
-               ("After"       . "stoat-db.service stoat-cache.service")
-               ("Requires"    . "stoat-db.service stoat-cache.service")))
-    ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
-                    ("ContainerName"   . "stoat-files")
-                    ("AutoUpdate"      . "registry")
-                    ("PublishPort"     . "127.0.0.1:3003:3003")
-                    ("EnvironmentFile" . ,secrets-path)
-                    ("Volume"          . ,(format nil "~A:/home/autumn/files:Z"
-                                                  files-mountpoint))
-                    ("Network"         . "stoat.network")))
-    ("Service" . (("Restart"         . "on-failure")
-                  ("TimeoutStartSec" . "60")
-                  ("TimeoutStopSec"  . "30")))
-    ("Install" . (("WantedBy" . "default.target")))))
+   server, binds to 127.0.0.1 only. Port is UID+2, per dapla.net convention."
+  (let ((port (+ (service-account-uid *service-user*) 2)))
+    `(("Unit" . (("Description" . "Stoat file server")
+                 ("After"       . "stoat-db.service stoat-cache.service")
+                 ("Requires"    . "stoat-db.service stoat-cache.service")))
+      ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
+                      ("ContainerName"   . "stoat-files")
+                      ("AutoUpdate"      . "registry")
+                      ("PublishPort"     . ,(format nil "127.0.0.1:~A:~A" port port))
+                      ("EnvironmentFile" . ,secrets-path)
+                      ("Volume"          . ,(format nil "~A:/home/autumn/files:Z"
+                                                    files-mountpoint))
+                      ("Network"         . "stoat.network")))
+      ("Service" . (("Restart"         . "on-failure")
+                    ("TimeoutStartSec" . "60")
+                    ("TimeoutStopSec"  . "30")))
+      ("Install" . (("WantedBy" . "default.target"))))))
 
 (defun stoat-container-sections (config-path)
   "Cinix AST for stoat.container: main API + web client, binds to
-   127.0.0.1 only, mounts Revolt.toml read-only."
-  `(("Unit" . (("Description" . "Stoat chat server")
-               ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
-               ("Wants"       . "network-online.target")
-               ("Requires"    . "stoat-db.service stoat-cache.service")))
-    ("Container" . (("Image"         . "oci.dapla.net/revoltchat/server:latest")
-                    ("ContainerName" . "stoat")
-                    ("AutoUpdate"    . "registry")
-                    ("PublishPort"   . "127.0.0.1:3000:3000")
-                    ("PublishPort"   . "127.0.0.1:3001:3001")
-                    ("Volume"        . ,(format nil "~A:/home/revolt/Revolt.toml:ro,Z"
-                                                config-path))
-                    ("Network"       . "stoat.network")
-                    ("Label"         . "io.containers.autoupdate=registry")))
-    ("Service" . (("Restart"         . "on-failure")
-                  ("TimeoutStartSec" . "120")
-                  ("TimeoutStopSec"  . "30")))
-    ("Install" . (("WantedBy" . "default.target")))))
+   127.0.0.1 only, mounts Revolt.toml read-only. API port is UID,
+   events/WebSocket port is UID+1, per dapla.net convention."
+  (let* ((uid        (service-account-uid *service-user*))
+         (port-api   uid)
+         (port-events (1+ uid)))
+    `(("Unit" . (("Description" . "Stoat chat server")
+                 ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
+                 ("Wants"       . "network-online.target")
+                 ("Requires"    . "stoat-db.service stoat-cache.service")))
+      ("Container" . (("Image"         . "oci.dapla.net/revoltchat/server:latest")
+                      ("ContainerName" . "stoat")
+                      ("AutoUpdate"    . "registry")
+                      ("PublishPort"   . ,(format nil "127.0.0.1:~A:~A" port-api port-api))
+                      ("PublishPort"   . ,(format nil "127.0.0.1:~A:~A" port-events port-events))
+                      ("Volume"        . ,(format nil "~A:/home/revolt/Revolt.toml:ro,Z"
+                                                  config-path))
+                      ("Network"       . "stoat.network")
+                      ("Label"         . "io.containers.autoupdate=registry")))
+      ("Service" . (("Restart"         . "on-failure")
+                    ("TimeoutStartSec" . "120")
+                    ("TimeoutStopSec"  . "30")))
+      ("Install" . (("WantedBy" . "default.target"))))))
 
 (defun haproxy-vhost-config ()
   "HAProxy vhost text: HTTP redirect, TLS frontend with security headers,
    WebSocket upgrade support for the events endpoint, backends for the API
-   (3000), events/WebSocket (3001), and file server (3003)."
+   (UID), events/WebSocket (UID+1), and file server (UID+2), per dapla.net
+   convention."
+  (let* ((uid          (service-account-uid *service-user*))
+         (port-api     uid)
+         (port-events  (1+ uid))
+         (port-files   (+ uid 2)))
   (format nil
 "frontend ~A_http
   bind *:80
@@ -309,7 +331,7 @@ backend stoat_api_be
   http-check expect status 200
   timeout connect 5s
   timeout server  60s
-  server stoat-api 127.0.0.1:3000 check inter 10s rise 2 fall 3
+  server stoat-api 127.0.0.1:~A check inter 10s rise 2 fall 3
 
 backend stoat_ws_be
   balance roundrobin
@@ -319,7 +341,7 @@ backend stoat_ws_be
   timeout server  120s
   timeout tunnel  3600s
   http-request set-header X-Forwarded-Proto https
-  server stoat-events 127.0.0.1:3001 check inter 10s rise 2 fall 3
+  server stoat-events 127.0.0.1:~A check inter 10s rise 2 fall 3
 
 backend stoat_files_be
   balance roundrobin
@@ -327,12 +349,13 @@ backend stoat_files_be
   http-check expect status 200
   timeout connect 5s
   timeout server  60s
-  server stoat-files 127.0.0.1:3003 check inter 10s rise 2 fall 3
+  server stoat-files 127.0.0.1:~A check inter 10s rise 2 fall 3
 "
           *haproxy-vhost-name* *haproxy-vhost-name* *haproxy-fqdn* *haproxy-vhost-name*
           *haproxy-vhost-name* *haproxy-fqdn*
           *haproxy-vhost-name* *haproxy-fqdn*
-          *haproxy-vhost-name* *haproxy-vhost-name*))
+          *haproxy-vhost-name* *haproxy-vhost-name*
+          port-api port-events port-files)))
 
 (defprop quadlets-activated :posix (user)
   "Reload USER's user-scope systemd daemon and restart the stoat
