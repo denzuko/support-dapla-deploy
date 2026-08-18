@@ -63,7 +63,6 @@
 (defparameter *haproxy-fqdn* "support.dapla.net")
 (defparameter *haproxy-vhost-name* "support")
 
-
 (defprop zfs-encryption-key :posix (path)
   "Generate a raw 32-byte ZFS encryption key at PATH via `openssl rand -out`,
    once, left alone on redeploy. Written directly by openssl to avoid binary
@@ -203,22 +202,6 @@ registration = true
         (format s "~A=~A~%" (car kv) (cdr kv)))
       (format s "~%"))))
 
-(defun service-account-uid (username)
-  "Read USERNAME's UID from the local passwd database via getent at property
-   apply time, after ROOTLESS-SERVICE-ACCOUNT has run. Returns NIL if the
-   account does not yet exist, allowing callers to defer operations that
-   depend on the UID. The UID is the base loopback PublishPort, per
-   dapla.net convention."
-  (let ((raw (with-output-to-string (s)
-               (uiop:run-program (list "getent" "passwd" username)
-                                 :output s
-                                 :ignore-error-status t))))
-    (when (and raw (plusp (length (string-trim '(#\Newline #\Space) raw))))
-      (parse-integer
-       (third (uiop:split-string
-               (string-trim '(#\Newline #\Space) raw)
-               :separator '(#\:)))))))
-
 (defun stoat-network-sections ()
   "Cinix AST for stoat.network: internal-only network."
   '(("Network" . (("NetworkName" . "stoat")
@@ -274,7 +257,6 @@ registration = true
       ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
                       ("ContainerName"   . "stoat-files")
                       ("AutoUpdate"      . "registry")
-                      ("PublishPort"     . ,(format nil "127.0.0.1:~A:~A" port port))
                       ("EnvironmentFile" . ,secrets-path)
                       ("Volume"          . ,(format nil "~A:/home/autumn/files:Z"
                                                     files-mountpoint))
@@ -298,8 +280,7 @@ registration = true
       ("Container" . (("Image"         . "oci.dapla.net/revoltchat/server:latest")
                       ("ContainerName" . "stoat")
                       ("AutoUpdate"    . "registry")
-                      ("PublishPort"   . ,(format nil "127.0.0.1:~A:~A" port-api port-api))
-                      ("PublishPort"   . ,(format nil "127.0.0.1:~A:~A" port-events port-events))
+
                       ("Volume"        . ,(format nil "~A:/home/revolt/Revolt.toml:ro,Z"
                                                   config-path))
                       ("Network"       . "stoat.network")
@@ -363,7 +344,7 @@ backend stoat_files_be
   http-check expect status 200
   timeout connect 5s
   timeout server  60s
-  server stoat-files 127.0.0.1:~A check inter 10s rise 2 fall 3
+  server stoat-files 10.89.2.37:3003 check inter 10s rise 2 fall 3
 "
             port-api port-events port-files)))
 

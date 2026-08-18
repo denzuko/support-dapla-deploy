@@ -16,8 +16,8 @@
 
 
 (defsection @network-allocation (:title "Network Allocation")
-  "The support.dapla.net service runs on netavark bridge network
-   podman10 (10.89.2.36/29), gateway 10.89.2.37.
+  "The support.dapla.net service runs on netavark bridge podman10 (10.89.2.36/29),
+   gateway 10.89.2.37.
 
    Full dapla.net VLSM allocation (10.89.2.0/26):
 
