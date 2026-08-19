@@ -19,3 +19,10 @@ rootless Podman quadlets behind HAProxy at support.dapla.net."
   :components ((:file "t/e2e"))
   :perform (asdf:test-op (op c)
              (uiop:symbol-call :fiveam :run! :support-dapla-deploy-e2e)))
+
+(asdf:defsystem :support-dapla-deploy/spec
+  :description "FiveAM specification tests for the quadlet specifier refactor."
+  :depends-on (:support-dapla-deploy/deploy :fiveam)
+  :components ((:file "t/spec"))
+  :perform (asdf:test-op (op c)
+             (uiop:symbol-call :support-dapla-deploy/spec :run-spec)))

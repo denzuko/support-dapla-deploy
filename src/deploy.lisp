@@ -36,6 +36,11 @@
            :stoat-cache-container-sections
            :stoat-files-container-sections
            :stoat-container-sections
+           :stoat-network-sections
+           :stoat-db-container-sections
+           :stoat-cache-container-sections
+           :stoat-files-container-sections
+           :stoat-container-sections
            :haproxy-vhost-config
            :quadlets-written :haproxy-vhost-written))
 
@@ -209,7 +214,7 @@ registration = true
                   ("Subnet"      . "10.89.2.36/29")
                   ("Gateway"     . "10.89.2.37")))))
 
-(defun stoat-db-container-sections (db-mountpoint)
+(defun stoat-db-container-sections ()
   "Cinix AST for stoat-db.container: mongo:6, ZFS-backed volume,
    health-checked via mongosh ping."
   `(("Unit" . (("Description" . "Stoat MongoDB database")))
@@ -217,7 +222,7 @@ registration = true
                     ("ContainerName"   . "stoat-db")
                     ("AutoUpdate"      . "registry")
                     ("EnvironmentFile" . "%S/stoat/secrets")
-                    ("Volume"          . ,(format nil "~A:/data/db:Z" db-mountpoint))
+                    ("Volume"          . "/srv/%U/db:/data/db:Z")
                     ("Network"         . "stoat.network")
                     ("HealthCmd"       . "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1")
                     ("HealthStartPeriod" . "15s")
@@ -229,13 +234,13 @@ registration = true
                   ("TimeoutStopSec"  . "30")))
     ("Install" . (("WantedBy" . "default.target")))))
 
-(defun stoat-cache-container-sections (cache-mountpoint)
+(defun stoat-cache-container-sections ()
   "Cinix AST for stoat-cache.container: KeyDB (Redis-compatible), ZFS-backed."
   `(("Unit" . (("Description" . "Stoat KeyDB cache")))
     ("Container" . (("Image"         . "oci.dapla.net/eqalpha/keydb:latest")
                     ("ContainerName" . "stoat-cache")
                     ("AutoUpdate"    . "registry")
-                    ("Volume"        . ,(format nil "~A:/data:Z" cache-mountpoint))
+                    ("Volume"        . "/srv/%U/cache:/data:Z")
                     ("Network"       . "stoat.network")
                     ("HealthCmd"     . "keydb-cli ping")
                     ("HealthStartPeriod" . "5s")
@@ -247,7 +252,7 @@ registration = true
                   ("TimeoutStopSec"  . "30")))
     ("Install" . (("WantedBy" . "default.target")))))
 
-(defun stoat-files-container-sections (files-mountpoint secrets-path)
+(defun stoat-files-container-sections ()
   "Cinix AST for stoat-files.container: Stoat's built-in S3-compatible file
    server, binds to 127.0.0.1 only. Port is UID+2, per dapla.net convention."
   `(("Unit" . (("Description" . "Stoat file server")
@@ -256,16 +261,15 @@ registration = true
       ("Container" . (("Image"           . "oci.dapla.net/revoltchat/autumn:latest")
                       ("ContainerName"   . "stoat-files")
                       ("AutoUpdate"      . "registry")
-                      ("EnvironmentFile" . ,secrets-path)
-                      ("Volume"          . ,(format nil "~A:/home/autumn/files:Z"
-                                                    files-mountpoint))
+                      ("EnvironmentFile" . "%h/.env/secrets")
+                      ("Volume"          . "/srv/%U/files:/home/autumn/files:Z")
                       ("Network"         . "stoat.network")))
       ("Service" . (("Restart"         . "on-failure")
                     ("TimeoutStartSec" . "60")
                     ("TimeoutStopSec"  . "30")))
       ("Install" . (("WantedBy" . "default.target")))))
 
-(defun stoat-container-sections (config-path)
+(defun stoat-container-sections ()
   "Cinix AST for stoat.container: main API + web client, binds to 127.0.0.1
    only, mounts Revolt.toml read-only. API port is UID, events/WebSocket
    port is UID+1, per dapla.net convention."
@@ -277,10 +281,14 @@ registration = true
                       ("ContainerName" . "stoat")
                       ("AutoUpdate"    . "registry")
 
-                      ("Volume"        . ,(format nil "~A:/home/revolt/Revolt.toml:ro,Z"
-                                                  config-path))
+                      ("Volume"        . "%h:/var/lib/stoat:ro")
+                      ("Volume"        . "/srv/%U/config/Revolt.toml:/home/revolt/Revolt.toml:ro,Z")
                       ("Network"       . "stoat.network")
                       ("Label"         . "io.containers.autoupdate=registry")
+                      ("Label"         . "org.cispec.application=support-dapla-deploy")
+                      ("Label"         . "org.cispec.managed-by=consfigurator")
+                      ("Label"         . "org.cispec.fqdn=support.dapla.net")
+                      ("Label"         . "org.cispec.service-account=stoat")
                       ("Label"           . "org.cispec.application=support-dapla-deploy")
                       ("Label"           . "org.cispec.managed-by=consfigurator")
                       ("Label"           . "org.cispec.fqdn=support.dapla.net")
@@ -355,8 +363,7 @@ backend stoat_files_be
        (write-remote-file cfg-path new-content)
        (reloaded "haproxy")))))
 
-(defprop quadlets-written :posix
-    (user home db-mountpoint files-mountpoint cache-mountpoint config-path secrets-path)
+(defprop quadlets-written :posix (user home)
   "Write all Stoat quadlet unit files into USER's systemd container directory.
    Written at property apply time so all mountpoints are resolved correctly."
   (:desc (format nil "Stoat quadlet units written for ~A" user))
@@ -369,17 +376,16 @@ backend stoat_files_be
       (cinix-write-string (stoat-network-sections)))
      (write-remote-file
       (format nil "~A/stoat-db.container" quadlet-dir)
-      (cinix-write-string (stoat-db-container-sections db-mountpoint)))
+      (cinix-write-string (stoat-db-container-sections)))
      (write-remote-file
       (format nil "~A/stoat-cache.container" quadlet-dir)
-      (cinix-write-string (stoat-cache-container-sections cache-mountpoint)))
+      (cinix-write-string (stoat-cache-container-sections)))
      (write-remote-file
       (format nil "~A/stoat-files.container" quadlet-dir)
-      (cinix-write-string (stoat-files-container-sections
-                           files-mountpoint secrets-path)))
+      (cinix-write-string (stoat-files-container-sections)))
      (write-remote-file
       (format nil "~A/stoat.container" quadlet-dir)
-      (cinix-write-string (stoat-container-sections config-path))))))
+      (cinix-write-string (stoat-container-sections))))))
 
 (defprop quadlets-activated :posix (user)
   "Reload USER's user-scope systemd daemon and restart the Stoat
@@ -413,9 +419,7 @@ backend stoat_files_be
                   "oci.dapla.net/eqalpha/keydb:latest"
                   "oci.dapla.net/revoltchat/autumn:latest"
                   "oci.dapla.net/revoltchat/server:latest")
-  (quadlets-written *service-user* *home-mountpoint*
-                    *db-mountpoint* *files-mountpoint* *cache-mountpoint*
-                    *config-path* *secrets-path*)
+  (quadlets-written *service-user* *home-mountpoint*)
   (quadlets-activated *service-user*)
   (haproxy-vhost-written))
 
