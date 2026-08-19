@@ -263,13 +263,13 @@ registration = true
       ("Service" . (("Restart"         . "on-failure")
                     ("TimeoutStartSec" . "60")
                     ("TimeoutStopSec"  . "30")))
-      ("Install" . (("WantedBy" . "default.target"))))))
+      ("Install" . (("WantedBy" . "default.target")))))
 
 (defun stoat-container-sections (config-path)
   "Cinix AST for stoat.container: main API + web client, binds to 127.0.0.1
    only, mounts Revolt.toml read-only. API port is UID, events/WebSocket
    port is UID+1, per dapla.net convention."
-  (    `(("Unit" . (("Description" . "Stoat chat server")
+  `(("Unit" . (("Description" . "Stoat chat server")
                  ("After"       . "stoat-db.service stoat-cache.service stoat-files.service")
                  ("Wants"       . "network-online.target")
                  ("Requires"    . "stoat-db.service stoat-cache.service")))
@@ -288,7 +288,7 @@ registration = true
       ("Service" . (("Restart"         . "on-failure")
                     ("TimeoutStartSec" . "120")
                     ("TimeoutStopSec"  . "30")))
-      ("Install" . (("WantedBy" . "default.target"))))))
+      ("Install" . (("WantedBy" . "default.target")))))
 
 (defun haproxy-vhost-config ()
   "HAProxy vhost configuration for support.dapla.net.
@@ -354,6 +354,42 @@ backend stoat_files_be
        (containing-directory-exists cfg-path)
        (write-remote-file cfg-path new-content)
        (reloaded "haproxy")))))
+
+(defprop quadlets-written :posix
+    (user home db-mountpoint files-mountpoint cache-mountpoint config-path secrets-path)
+  "Write all Stoat quadlet unit files into USER's systemd container directory.
+   Written at property apply time so all mountpoints are resolved correctly."
+  (:desc (format nil "Stoat quadlet units written for ~A" user))
+  (:apply
+   (let ((quadlet-dir (format nil "~A/.config/containers/systemd" home)))
+     (consfigurator.property.file:containing-directory-exists
+      (format nil "~A/stoat.network" quadlet-dir))
+     (write-remote-file
+      (format nil "~A/stoat.network" quadlet-dir)
+      (cinix-write-string (stoat-network-sections)))
+     (write-remote-file
+      (format nil "~A/stoat-db.container" quadlet-dir)
+      (cinix-write-string (stoat-db-container-sections db-mountpoint)))
+     (write-remote-file
+      (format nil "~A/stoat-cache.container" quadlet-dir)
+      (cinix-write-string (stoat-cache-container-sections cache-mountpoint)))
+     (write-remote-file
+      (format nil "~A/stoat-files.container" quadlet-dir)
+      (cinix-write-string (stoat-files-container-sections
+                           files-mountpoint secrets-path)))
+     (write-remote-file
+      (format nil "~A/stoat.container" quadlet-dir)
+      (cinix-write-string (stoat-container-sections config-path))))))
+
+(defprop quadlets-activated :posix (user)
+  "Reload USER's user-scope systemd daemon and restart the Stoat
+   quadlet-generated services in dependency order via machinectl shell."
+  (:desc (format nil "Quadlets activated for ~A" user))
+  (:apply
+   (mrun (format nil "machinectl shell ~A@ /usr/bin/systemctl --user daemon-reload" user))
+   (mrun (format nil
+          "machinectl shell ~A@ /usr/bin/systemctl --user restart stoat-db stoat-cache stoat-files stoat"
+          user))))
 
 (defhost support-host (:deploy (:local))
   "The Stoat stack's host: four AES-256-GCM-encrypted ZFS datasets (home,
