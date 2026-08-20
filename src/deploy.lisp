@@ -221,7 +221,7 @@ registration = true
     ("Container" . (("Image"           . "oci.dapla.net/library/mongo:6")
                     ("ContainerName"   . "stoat-db")
                     ("AutoUpdate"      . "registry")
-                    ("EnvironmentFile" . "%S/stoat/secrets")
+                    ("EnvironmentFile" . "%h/.env/secrets")
                     ("Volume"          . "/srv/%U/db:/data/db:Z")
                     ("Network"         . "stoat.network")
                     ("HealthCmd"       . "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1")
