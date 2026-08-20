@@ -47,7 +47,6 @@
 
 (defsection @quadlet-builders (:title "Quadlet Unit Builders")
   (support-dapla-deploy/deploy:cinix-write-string              function)
-  (support-dapla-deploy/deploy:service-account-uid             function)
   (support-dapla-deploy/deploy:stoat-network-sections          function)
   (support-dapla-deploy/deploy:stoat-db-container-sections     function)
   (support-dapla-deploy/deploy:stoat-cache-container-sections  function)
