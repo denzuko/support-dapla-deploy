@@ -302,7 +302,7 @@ registration = true
   "HAProxy vhost configuration for support.dapla.net.
    Three backends on netavark gateway 10.89.2.37:
      API=3000, WebSocket events=3001, file server=3003.
-   No loopback, no port arithmetic."
+   HAProxy backend: 10.89.2.37 via netavark bridge podman10."
   (format nil
 "frontend support_http
   bind *:80
